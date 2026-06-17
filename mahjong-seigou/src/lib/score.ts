@@ -1,24 +1,42 @@
 import type { ScoreResult, YakuResult } from '../types/mahjong';
 
 // 整合計算 点数計算
-// 基点表
-// 条件の基点 × 翻の基点 ÷ 1000 = 点数
+// 基点公式: 点数 = 条件の基点 × 翻の基点 ÷ 1000
 
-// 翻の基点 (han -> base points for that han level)
-function hanToKitenBase(han: number): number {
-  if (han >= 13) return 16000; // 役満: 基点16倍 (条件の基点1000×16=16000)
-  if (han >= 4) return han * 1000; // 第4規則: 条件の基点 × 翻数
-  // 第1〜第3規則: 2[han]-2 × (1 + han - [han]) × 1000
+// 翻の基点 (han base)
+// 翻の第1規則: 2翻 = 条件の基点(1000)
+// 翻の第2規則: 1翻以上4翻以下 → 1翻小さい点数の2倍
+// 翻の第3規則: 小数第1位が5の翻数 → 0.5翻小さい点数の1.5倍
+// 翻の第4規則: 4翻以上13翻未満 → 条件の基点 × 翻数
+// 翻の第5規則: 13翻以上 / 役満 → 条件の基点 × 16
+//
+// 公式: han 1-4: 翻の基点 = 2^([han]-2) × (1 + han - [han]) × 1000
+function hanToHanBase(han: number): number {
+  if (han >= 13) return 16000;
+  if (han >= 4) return han * 1000;
   const floor = Math.floor(han);
   const frac = han - floor;
   return Math.pow(2, floor - 2) * (1 + frac) * 1000;
 }
 
+// 条件の基点 (situation base)
+// 子ツモ・子支払 = 500
+// 子ツモ・親支払 / 親ツモ・子支払 = 1000
+// 四人麻雀子ロン = 2000 (= 500×2 + 1000×1 をひとりが払う)
+// 四人麻雀親ロン = 3000 (= 1000×3 をひとりが払う)
+
 function roundUp250(n: number): number {
+  if (n % 250 === 0) return n;
   return Math.ceil(n / 250) * 250;
 }
 
-// 250点単位への丸め（例外処理含む）
+// 例外処理: 250の倍数にならない場合は250単位に切り上げ
+// 例外テーブルに従い特定の値を調整
+function fixException(n: number): number {
+  // 250点単位に切り上げ
+  return roundUp250(n);
+}
+
 export function calcSeigouScore(
   yakuList: YakuResult[],
   doraCount: number,
@@ -28,73 +46,53 @@ export function calcSeigouScore(
   _riichiBets: number,
 ): ScoreResult {
   const isYakuman = yakuList.some(y => y.han === Infinity);
-
-  let han = isYakuman ? Infinity : yakuList.reduce((s, y) => s + y.han, 0) + doraCount;
+  const han = isYakuman ? Infinity : yakuList.reduce((s, y) => s + y.han, 0) + doraCount;
 
   const rankName = getRankName(han);
+  const hanBase = isYakuman ? 16000 : hanToHanBase(han);
 
-  // 条件の基点計算
-  // 子ツモ: 子→子支払い=500(基点1), 子→親支払い=1000(基点2)
-  // 親ツモ: 子→親支払い=1000(基点2) ×3
-  // ロン: 子→子(3人)=2000(基点2×3=6000相当), 親→子(3人)=3000
+  // 各支払い点数を計算
+  // 子ツモ: childPayChild = 500 × hanBase / 1000, childPayParent = 1000 × hanBase / 1000
+  // 親ツモ: parentPayChild = 1000 × hanBase / 1000
+  let childPayChild = fixException((500 * hanBase) / 1000);
+  let childPayParent = fixException((1000 * hanBase) / 1000);
+  const parentPayChild = fixException((1000 * hanBase) / 1000);
 
-  const kitenBase = isYakuman ? 16000 : hanToKitenBase(han);
-
-  let childPayChild: number;   // 子ツモ時の子の支払い
-  let childPayParent: number;  // 子ツモ時の親の支払い
-  let parentPayChild: number;  // 親ツモ時の子の支払い
-  let ronPayment: number;      // ロン時の支払い
-
-  if (isYakuman) {
-    // 役満: 条件の基点1000×16=16000
-    childPayChild = 8000;
-    childPayParent = 16000;
-    parentPayChild = 16000;
-    ronPayment = isDealer ? 48000 : 32000;
-  } else {
-    // 翻の基点 (per-person payment amounts)
-    // 条件の基点500(子ツモ子支払い) × 翻の基点 / 1000
-    childPayChild = roundUp250((500 * kitenBase) / 1000);
-    childPayParent = roundUp250((1000 * kitenBase) / 1000);
-    parentPayChild = roundUp250((1000 * kitenBase) / 1000);
-
-    // 例外: 1.5翻の子のツモ子支払い
-    if (han === 1.5) {
-      childPayChild = 500; // 例外
-    }
-
-    if (isDealer) {
-      // 親ツモ: 全員が parentPayChild を支払う
-      ronPayment = parentPayChild * 3;
-    } else {
-      // 子ロン: 振り込んだ一人が全額支払い
-      // ロン得点 = ツモ得点と同じ (子ツモの場合: childPayChild×2 + childPayParent)
-      ronPayment = roundUp250(kitenBase * 2); // 条件の基点2000 × 翻の基点 / 1000
-    }
+  // 例外: 1.5翻のchildPayChild
+  if (han === 1.5) {
+    childPayChild = 500; // 特例
   }
 
-  // 本場加算
-  const honbaBonus = honba * 250;
+  // 本場加算: ツモは各人から250点×本場、ロンは振込者から750点×本場
+  const honbaPerPerson = honba * 250;
+  const honbaRon = honba * 250 * 3; // (4-1)人分
 
   const payments: ScoreResult['payments'] = {};
+
   if (isTsumo) {
     if (isDealer) {
-      payments.tsumo = { parent: 0, child: parentPayChild + Math.ceil(honbaBonus / 3) };
+      payments.tsumo = {
+        parent: 0,
+        child: parentPayChild + honbaPerPerson,
+      };
     } else {
       payments.tsumo = {
-        parent: childPayParent + honbaBonus,
-        child: childPayChild + Math.ceil(honbaBonus / 3),
+        parent: childPayParent + honbaPerPerson,
+        child: childPayChild + honbaPerPerson,
       };
     }
   } else {
-    payments.ron = ronPayment + (isDealer ? honbaBonus * 3 : honbaBonus * 3);
+    const baseRon = isDealer
+      ? fixException((3000 * hanBase) / 1000)
+      : fixException((2000 * hanBase) / 1000);
+    payments.ron = baseRon + honbaRon;
   }
 
   return {
     han,
     yaku: yakuList,
     dora: doraCount,
-    basePoints: kitenBase,
+    basePoints: hanBase,
     payments,
     rankName,
   };
@@ -113,10 +111,28 @@ export function getRankName(han: number): string {
 export function getDoraFromIndicator(indicator: import('../types/mahjong').Tile): import('../types/mahjong').Tile {
   const t = { ...indicator };
   if (t.suit === 'honor') {
-    if (t.value <= 4) t.value = t.value === 4 ? 1 : t.value + 1; // winds cycle
-    else t.value = t.value === 7 ? 5 : t.value + 1; // dragons cycle
+    if (t.value <= 4) t.value = t.value === 4 ? 1 : t.value + 1;
+    else t.value = t.value === 7 ? 5 : t.value + 1;
   } else {
     t.value = t.value === 9 ? 1 : t.value + 1;
   }
   return t;
+}
+
+// 流局時のノーテン罰符計算
+// 総罰符 3000点固定
+export function calcNotenBappu(tenpaiFlags: boolean[]): number[] {
+  const n = tenpaiFlags.length; // 4
+  const tenpaiCount = tenpaiFlags.filter(Boolean).length;
+  const notenCount = n - tenpaiCount;
+
+  if (tenpaiCount === 0 || tenpaiCount === n) return tenpaiFlags.map(() => 0);
+
+  const totalPool = 3000;
+  const gainPerTenpai = totalPool / tenpaiCount;
+  const payPerNoten = totalPool / notenCount;
+
+  return tenpaiFlags.map(isTenpai =>
+    isTenpai ? gainPerTenpai : -payPerNoten
+  );
 }

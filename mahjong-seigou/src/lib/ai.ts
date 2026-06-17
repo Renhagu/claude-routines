@@ -1,49 +1,74 @@
 import type { Tile, Meld } from '../types/mahjong';
 import { getTenpaiTiles } from './agari';
-import { sameTile, isYaochuuhai, sortTiles } from './tiles';
+import { sameTile, isYaochuuhai } from './tiles';
 
-// Simple CPU AI: discard strategy
+// CPU AI: discard strategy
 export function cpuChooseDiscard(hand: Tile[], melds: Meld[]): Tile {
-  const sorted = sortTiles(hand);
+  // Try to discard each tile and see if remaining tiles are tenpai or get better
+  let bestTile = hand[0];
+  let bestScore = -Infinity;
 
-  // Try to find tenpai by removing each tile
-  for (const tile of sorted) {
-    const remaining = sorted.filter((_, i) => sorted[i] !== tile);
-    // Skip duplicates (same tile type)
+  for (const candidate of hand) {
+    const remaining = removeOneTile(hand, candidate);
     const waits = getTenpaiTiles(remaining, melds);
     if (waits.length > 0) {
-      return tile;
+      // Tenpai! Discard this tile - prioritize by number of waits
+      const score = 1000 + waits.length;
+      if (score > bestScore) { bestScore = score; bestTile = candidate; }
+      continue;
     }
+    // Score the remaining hand by connections
+    const score = scoreHand(remaining, melds);
+    if (score > bestScore) { bestScore = score; bestTile = candidate; }
   }
 
-  // Count tile usefulness (how many connections it has)
-  const scores = sorted.map(tile => {
-    let score = 0;
-    if (isYaochuuhai(tile)) score -= 2;
-    for (const other of sorted) {
-      if (other === tile) continue;
-      if (sameTile(other, tile)) score += 3; // pair
-      if (other.suit === tile.suit && Math.abs(other.value - tile.value) <= 2) score += 1;
-    }
-    return score;
-  });
+  return bestTile;
+}
 
-  // Discard tile with lowest score
-  const minScore = Math.min(...scores);
-  const idx = scores.indexOf(minScore);
-  return sorted[idx];
+function removeOneTile(hand: Tile[], tile: Tile): Tile[] {
+  const idx = hand.findIndex(t => sameTile(t, tile));
+  return [...hand.slice(0, idx), ...hand.slice(idx + 1)];
+}
+
+function scoreHand(hand: Tile[], _melds: Meld[]): number {
+  let score = 0;
+  for (let i = 0; i < hand.length; i++) {
+    const t = hand[i];
+    if (isYaochuuhai(t)) continue; // yaochuu tiles are less useful
+    for (let j = i + 1; j < hand.length; j++) {
+      const u = hand[j];
+      if (sameTile(t, u)) { score += 3; continue; } // pair
+      if (t.suit === u.suit && !isYaochuuhai(t)) {
+        const diff = Math.abs(t.value - u.value);
+        if (diff === 1) score += 2; // sequential
+        if (diff === 2) score += 1; // kanchan
+      }
+    }
+  }
+  return score;
 }
 
 // CPU decides whether to declare riichi
-export function cpuShouldRiichi(hand: Tile[], melds: Meld[]): boolean {
-  if (melds.length > 0) return false;
-  // Simple: riichi if tenpai with few waits (conservative)
-  const waits = getTenpaiTiles(hand, melds);
-  return waits.length > 0;
+export function cpuGetRiichiDiscard(hand: Tile[], melds: Meld[]): Tile | null {
+  if (melds.length > 0) return null;
+  // Find a discard that leaves hand in tenpai
+  for (const tile of hand) {
+    const remaining = removeOneTile(hand, tile);
+    const waits = getTenpaiTiles(remaining, melds);
+    if (waits.length > 0) return tile;
+  }
+  return null;
 }
 
-// CPU decides whether to call chi/pon on a discarded tile
-export function cpuShouldClaim(_hand: Tile[], _tile: Tile): boolean {
-  // Simple AI: don't call for now
-  return false;
+// Get tenpai waits for a hand (14 tiles - returns waits if tenpai with one discard)
+export function getTenpaiDiscardsAndWaits(hand: Tile[], melds: Meld[]): Map<string, Tile[]> {
+  const result = new Map<string, Tile[]>();
+  for (const tile of hand) {
+    const remaining = removeOneTile(hand, tile);
+    const waits = getTenpaiTiles(remaining, melds);
+    if (waits.length > 0) {
+      result.set(`${tile.suit}-${tile.value}`, waits);
+    }
+  }
+  return result;
 }
