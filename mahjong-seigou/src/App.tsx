@@ -78,7 +78,7 @@ export default function App() {
     setCanTsumo(tsumo);
 
     const p = game.players[HUMAN];
-    const hand13 = p.hand.slice(0, -1);
+    const hand13 = p.hand.length === 14 ? p.hand.slice(0, -1) : p.hand;
     setTenpaiHighlight(getTenpaiTiles(hand13, p.melds));
 
     if (!p.isRiichi && p.melds.length === 0) {
@@ -200,8 +200,8 @@ export default function App() {
   };
 
   const player = game.players[HUMAN];
-  const hand13 = player.hand.slice(0, -1);
   const drawnTile = player.hand.length === 14 ? player.hand[player.hand.length - 1] : null;
+  const hand13 = drawnTile ? player.hand.slice(0, -1) : player.hand;
   const canRiichi = !player.isRiichi && player.melds.length === 0 && riichiDiscards.size > 0 && !canTsumo;
 
   // Player order: 2=West(top), 3=North(left), 1=South(right)
