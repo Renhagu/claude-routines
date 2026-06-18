@@ -37,7 +37,7 @@ function DiscardGrid({ tiles, lastTileId, rotate }: {
   rotate?: 90 | 180 | 270;
 }) {
   const rows: Tile[][] = [];
-  for (let i = 0; i < tiles.length; i += 3) rows.push(tiles.slice(i, i + 3));
+  for (let i = 0; i < tiles.length; i += 6) rows.push(tiles.slice(i, i + 6));
 
   return (
     <div className={`flex flex-col gap-0.5 ${rotate === 180 ? 'rotate-180' : ''}`}>
