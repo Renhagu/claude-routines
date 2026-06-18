@@ -62,7 +62,7 @@ export default function ScoreModal({ result, winnerName, isTsumo, isDealer, winT
 
   return (
     <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-50 p-2">
-      <div className="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-sm mx-auto">
+      <div className="bg-white text-gray-800 rounded-2xl shadow-2xl p-4 w-full max-w-sm mx-auto">
         <h2 className="text-2xl font-bold text-center mb-0.5 text-gray-800">
           {isTsumo ? 'ツモ！' : 'ロン！'}
         </h2>
@@ -86,7 +86,7 @@ export default function ScoreModal({ result, winnerName, isTsumo, isDealer, winT
         {/* Rank */}
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-2 mb-3 text-center">
           <span className="text-2xl font-bold text-amber-700">{result.rankName}</span>
-          {result.han !== Infinity && result.han > 0 && (
+          {result.han !== Infinity && result.han >= 4 && (
             <span className="text-base text-amber-500 ml-2">{result.han}翻</span>
           )}
         </div>
